@@ -27,7 +27,12 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
 # ── Helper: build a session document ─────────────────────────────
-def _new_session(user_id: str, amount: float) -> dict:
+def _new_session(
+    user_id: str,
+    amount: float,
+    recipient_bank_code: str,
+    recipient_account: str,
+) -> dict:
     return {
         "user_id": user_id,
         "behavioral_score": 0.0,
@@ -35,6 +40,8 @@ def _new_session(user_id: str, amount: float) -> dict:
         "stage2_score": None,
         "profile_confidence": 0.0,
         "payment_amount": amount,
+        "recipient_bank_code": recipient_bank_code,
+        "recipient_account": recipient_account,
         "decision": "PENDING",
         "block_reason": None,
         "squad_txn_ref": None,
@@ -55,7 +62,12 @@ async def verify_session(
     user_id = user["id"]
 
     # ── 1. Create session record ──────────────────────────────────
-    session_doc = _new_session(user_id, body.paymentAmount)
+    session_doc = _new_session(
+        user_id,
+        body.paymentAmount,
+        body.recipientBankCode,
+        body.recipientAccount,
+    )
     result = await db.sessions.insert_one(session_doc)
     session_id = str(result.inserted_id)
 
@@ -74,7 +86,15 @@ async def verify_session(
         behavioral_score = behavioral_score * (0.7 + 0.3 * quality)
         behavioral_score = round(behavioral_score, 1)
 
-    decision = classify_decision(behavioral_score)
+    is_enrollment = score_result["is_enrollment"]
+    if is_enrollment:
+        # Enrollment sessions (< 3 vectors in profile): only block truly anomalous
+        # behaviour (< 50). No CHALLENGE tier — the profile is too sparse to
+        # challenge against meaningfully. Approve everything >= 50 so vectors
+        # accumulate and the full profile can form.
+        decision = "APPROVED" if behavioral_score >= 50 else "BLOCKED"
+    else:
+        decision = classify_decision(behavioral_score)
 
     breakdown = ScoreBreakdown(
         stage1_isolation_forest=score_result["stage1_score"],
@@ -93,6 +113,7 @@ async def verify_session(
             "stage2_score": score_result.get("stage2_score"),
             "profile_confidence": score_result["profile_confidence"],
             "signal_quality": quality,
+            "is_enrollment": is_enrollment,
             "decision": decision,
             "updated_at": datetime.utcnow(),
         }}
@@ -219,6 +240,9 @@ async def submit_challenge(
     behavioral_score = score_result["behavioral_score"]
     decision = classify_decision(behavioral_score)
 
+    # Compute post-increment value before the DB write
+    incremented_attempts = session.get("challenge_attempts", 0) + 1
+
     # Increment challenge attempt counter
     await db.sessions.update_one(
         {"_id": ObjectId(body.sessionId)},
@@ -239,7 +263,7 @@ async def submit_challenge(
     )
 
     # BLOCKED after challenge
-    if decision == "BLOCKED" or (decision == "CHALLENGE" and session.get("challenge_attempts", 0) >= 1):
+    if decision == "BLOCKED" or (decision == "CHALLENGE" and incremented_attempts >= 2):
         await db.sessions.update_one(
             {"_id": ObjectId(body.sessionId)},
             {"$set": {"decision": "BLOCKED", "block_reason": "challenge_failed"}}

@@ -8,9 +8,17 @@ from typing import Optional
 from bson import ObjectId
 from database import get_db
 from config import settings
+from services.cache import (
+    get_cached_profile, set_cached_profile, invalidate_profile,
+    get_cached_helper_profile, set_cached_helper_profile, invalidate_helper_profile,
+)
 
 
 async def get_or_create_profile(user_id: str) -> dict:
+    cached = await get_cached_profile(user_id)
+    if cached:
+        return cached
+
     db = get_db()
     profile = await db.behavioral_profiles.find_one({"user_id": user_id})
     if not profile:
@@ -23,15 +31,24 @@ async def get_or_create_profile(user_id: str) -> dict:
             "last_updated": datetime.utcnow(),
         }
         await db.behavioral_profiles.insert_one(profile)
+
+    await set_cached_profile(user_id, profile)
     return profile
 
 
 async def get_helper_profile(user_id: str, helper_id: str) -> Optional[dict]:
+    cached = await get_cached_helper_profile(user_id, helper_id)
+    if cached:
+        return cached
+
     db = get_db()
-    return await db.helper_profiles.find_one({
+    profile = await db.helper_profiles.find_one({
         "user_id": user_id,
         "helper_id": helper_id,
     })
+    if profile:
+        await set_cached_helper_profile(user_id, helper_id, profile)
+    return profile
 
 
 async def update_profile(user_id: str, new_vector: list, is_helper: bool = False, helper_id: str = None):
@@ -71,6 +88,12 @@ async def update_profile(user_id: str, new_vector: list, is_helper: bool = False
             "last_updated": datetime.utcnow(),
         }}
     )
+
+    # Invalidate cache so next read fetches the updated profile from MongoDB
+    if is_helper and helper_id:
+        await invalidate_helper_profile(user_id, helper_id)
+    else:
+        await invalidate_profile(user_id)
 
     # Also update is_enrolled on user document
     if not is_helper:

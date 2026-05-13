@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from config import settings
 from database import connect_db, close_db
 from services.biometric_engine import get_model
+from services.cache import connect_cache, close_cache
 
 # Import routers directly
 from routers.auth import router as auth_router
@@ -17,9 +18,11 @@ from routers.dashboard import router as dashboard_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
+    await connect_cache()
     get_model()
     print(f"✅ {settings.APP_NAME} backend running")
     yield
+    await close_cache()
     await close_db()
 
 
