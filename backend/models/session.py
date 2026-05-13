@@ -67,6 +67,10 @@ class RawSignals(BaseModel):
     deviceMotion: List[Dict[str, Any]] = []
     fieldTimings: Dict[str, Any] = {}
     tapOffsets: List[Dict[str, Any]] = []
+    extractedFeatures: List[float] = []        # ← add this
+    signalHash: Optional[str] = None    # ← add this
+    quality: Optional[float] = None  # ← add this
+
 
 
 class BehavioralData(BaseModel):

@@ -1,7 +1,9 @@
 """
 signal_processor.py
-Converts raw TrustChain.js SDK signal blob into a fixed
-24-dimensional numpy feature vector for ML model input.
+Accepts pre-extracted features from TrustChain.js SDK.
+If client sent extractedFeatures, uses them directly.
+Falls back to server-side extraction if not present.
+Raw signals are never stored — only the 24-feature vector.
 """
 import numpy as np
 from typing import Dict, Any
@@ -9,78 +11,60 @@ from typing import Dict, Any
 
 def extract_feature_vector(signals: Dict[str, Any]) -> np.ndarray:
     """
-    Input:  raw signals dict from TrustChain.js SDK
-    Output: numpy array of shape (24,) dtype float32
-
-    Feature layout:
-      [0:5]   Keystroke dynamics      (5 features)
-      [5:9]   Touch pressure          (4 features)
-      [9:12]  Swipe velocity          (3 features)
-      [12:16] Device orientation      (4 features)
-      [16:20] Form field timing       (4 features)
-      [20:24] Tap accuracy            (4 features)
+    If the client sent pre-extracted features, use them directly.
+    This means feature extraction happened in the browser —
+    raw keystrokes never traveled over the network.
+    Falls back to server-side extraction for compatibility.
     """
+    # ── Use client-side features if available ────────────────────
+    client_features = signals.get("extractedFeatures")
+    if client_features and len(client_features) == 24:
+        return np.array(client_features, dtype=np.float32)
+
+    # ── Fallback: server-side extraction ─────────────────────────
     features = []
 
-    # ── S1: Keystroke Dynamics (5 features) ──────────────────────
+    # S1: Keystroke dynamics (5)
     keystrokes = signals.get("keystrokes", [])
-    hold_durations = [
-        k["holdDuration"]
-        for k in keystrokes
-        if k.get("holdDuration") and k["holdDuration"] > 0
+    holds = [
+        k["holdDuration"] for k in keystrokes
+        if k.get("holdDuration") and 0 < k["holdDuration"] < 2000
     ]
-
-    if len(hold_durations) >= 2:
+    if len(holds) >= 2:
         features += [
-            float(np.mean(hold_durations)),           # avg hold time (ms)
-            float(np.std(hold_durations)),            # variance in hold time
-            float(np.median(hold_durations)),         # median hold time
-            float(np.percentile(hold_durations, 25)), # lower quartile
-            float(np.percentile(hold_durations, 75)), # upper quartile
+            float(np.mean(holds)),
+            float(np.std(holds)),
+            float(np.median(holds)),
+            float(np.percentile(holds, 25)),
+            float(np.percentile(holds, 75)),
         ]
     else:
-        features += [80.0, 20.0, 80.0, 60.0, 100.0]  # sensible defaults
+        features += [80.0, 20.0, 80.0, 60.0, 100.0]
 
-    # Inter-key intervals (time between consecutive keystrokes)
-    # stored inside keystroke timing — used for S2 as fallback
-    iki_values = []
-    for i in range(1, len(keystrokes)):
-        if keystrokes[i].get("downTime") and keystrokes[i - 1].get("downTime"):
-            iki = keystrokes[i]["downTime"] - keystrokes[i - 1]["downTime"]
-            if 0 < iki < 2000:  # ignore suspiciously long gaps
-                iki_values.append(iki)
-
-    # ── S2: Touch Pressure (4 features) ──────────────────────────
+    # S2: Touch pressure (4)
     touches = signals.get("touchEvents", [])
-    forces = [t.get("force", 0) for t in touches if t.get("force", 0) > 0]
-    radii = [
-        (t.get("radiusX", 0) + t.get("radiusY", 0)) / 2
-        for t in touches
-        if t.get("radiusX", 0) > 0
-    ]
-
+    forces  = [t.get("force", 0) for t in touches if t.get("force", 0) > 0]
+    radii   = [(t.get("radiusX", 0) + t.get("radiusY", 0)) / 2 for t in touches if t.get("radiusX", 0) > 0]
     features += [
-        float(np.mean(forces)) if forces else 0.3,
-        float(np.std(forces)) if len(forces) >= 2 else 0.05,
-        float(np.mean(radii)) if radii else 10.0,
-        float(np.std(radii)) if len(radii) >= 2 else 2.0,
+        float(np.mean(forces))  if forces else 0.3,
+        float(np.std(forces))   if len(forces) >= 2 else 0.05,
+        float(np.mean(radii))   if radii  else 10.0,
+        float(np.std(radii))    if len(radii) >= 2 else 2.0,
     ]
 
-    # ── S3: Swipe Velocity (3 features) ──────────────────────────
+    # S3: Swipe velocity (3)
     swipes = signals.get("swipeEvents", [])
-    velocities = [abs(s.get("velocityY", 0)) for s in swipes if s.get("velocityY", 0) != 0]
-
+    vels   = [abs(s.get("velocityY", 0)) for s in swipes if s.get("velocityY", 0) != 0]
     features += [
-        float(np.mean(velocities)) if velocities else 0.5,
-        float(np.max(velocities)) if velocities else 1.0,
-        float(np.std(velocities)) if len(velocities) >= 2 else 0.2,
+        float(np.mean(vels)) if vels else 0.5,
+        float(np.max(vels))  if vels else 1.0,
+        float(np.std(vels))  if len(vels) >= 2 else 0.2,
     ]
 
-    # ── S4: Device Orientation / Gyroscope (4 features) ──────────
+    # S4: Device orientation (4)
     motion = signals.get("deviceMotion", [])
     betas  = [m.get("beta",  0) for m in motion if m.get("beta")  is not None]
     gammas = [m.get("gamma", 0) for m in motion if m.get("gamma") is not None]
-
     features += [
         float(np.mean(betas))  if betas  else 0.0,
         float(np.std(betas))   if len(betas)  >= 2 else 0.5,
@@ -88,68 +72,50 @@ def extract_feature_vector(signals: Dict[str, Any]) -> np.ndarray:
         float(np.std(gammas))  if len(gammas) >= 2 else 0.5,
     ]
 
-    # ── S5: Form Field Timing (4 features) ───────────────────────
+    # S5: Form timing (4)
     timings = signals.get("fieldTimings", {})
-    field_durations = []
-    paste_count = 0
-    total_keys = 0
-
-    for field in timings.values():
-        focus = field.get("focusTime")
-        blur  = field.get("blurTime")
-        if focus and blur and blur > focus:
-            field_durations.append(blur - focus)
-        if field.get("pasteDetected"):
-            paste_count += 1
-        total_keys += field.get("keyCount", 0)
-
+    durs    = []
+    pastes  = 0
+    keys    = 0
+    for f in timings.values():
+        if f.get("focusTime") and f.get("blurTime") and f["blurTime"] > f["focusTime"]:
+            durs.append(f["blurTime"] - f["focusTime"])
+        if f.get("pasteDetected"): pastes += 1
+        keys += f.get("keyCount", 0)
     features += [
-        float(np.mean(field_durations)) if field_durations else 3000.0,
-        float(np.std(field_durations))  if len(field_durations) >= 2 else 500.0,
-        float(paste_count),
-        float(total_keys),
+        float(np.mean(durs)) if durs else 3000.0,
+        float(np.std(durs))  if len(durs) >= 2 else 500.0,
+        float(pastes),
+        float(keys),
     ]
 
-    # ── S6: Tap Accuracy (4 features) ────────────────────────────
+    # S6: Tap accuracy (4)
     taps = signals.get("tapOffsets", [])
-    offsets_x = [abs(t.get("offsetX", 0)) for t in taps]
-    offsets_y = [abs(t.get("offsetY", 0)) for t in taps]
-
+    ox   = [abs(t.get("offsetX", 0)) for t in taps]
+    oy   = [abs(t.get("offsetY", 0)) for t in taps]
     features += [
-        float(np.mean(offsets_x)) if offsets_x else 5.0,
-        float(np.std(offsets_x))  if len(offsets_x) >= 2 else 2.0,
-        float(np.mean(offsets_y)) if offsets_y else 5.0,
-        float(np.std(offsets_y))  if len(offsets_y) >= 2 else 2.0,
+        float(np.mean(ox)) if ox else 5.0,
+        float(np.std(ox))  if len(ox) >= 2 else 2.0,
+        float(np.mean(oy)) if oy else 5.0,
+        float(np.std(oy))  if len(oy) >= 2 else 2.0,
     ]
 
     vector = np.array(features, dtype=np.float32)
-    assert len(vector) == 24, f"Vector length mismatch: {len(vector)}"
+    assert len(vector) == 24
     return vector
 
 
 def signals_quality_score(signals: Dict[str, Any]) -> float:
-    """
-    Returns 0.0–1.0 indicating how rich the captured signal data is.
-    Low quality = fewer events captured = less confident scoring.
-    Used to downweight confidence on sparse sessions.
-    """
+    """Returns 0.0–1.0 signal richness. Uses client quality if sent."""
+    # If SDK sent quality score directly, trust it
+    client_quality = signals.get("quality")
+    if client_quality is not None:
+        return float(client_quality)
+
     score = 0.0
-    weights = {
-        "keystrokes":   0.30,
-        "touchEvents":  0.25,
-        "swipeEvents":  0.15,
-        "deviceMotion": 0.15,
-        "tapOffsets":   0.15,
-    }
-    thresholds = {
-        "keystrokes":   5,
-        "touchEvents":  3,
-        "swipeEvents":  2,
-        "deviceMotion": 10,
-        "tapOffsets":   2,
-    }
+    weights    = {"keystrokes": 0.30, "touchEvents": 0.25, "swipeEvents": 0.15, "deviceMotion": 0.15, "tapOffsets": 0.15}
+    thresholds = {"keystrokes": 5,    "touchEvents": 3,    "swipeEvents": 2,    "deviceMotion": 10,   "tapOffsets": 2}
     for key, weight in weights.items():
         count = len(signals.get(key, []))
-        threshold = thresholds[key]
-        score += weight * min(1.0, count / threshold)
+        score += weight * min(1.0, count / thresholds[key])
     return round(score, 3)

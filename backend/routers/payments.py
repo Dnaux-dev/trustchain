@@ -93,6 +93,7 @@ async def verify_session(
             "stage2_score": score_result.get("stage2_score"),
             "profile_confidence": score_result["profile_confidence"],
             "signal_quality": quality,
+            "signal_hash": body.behavioralData.signals.dict().get("signalHash", ""),
             "decision": decision,
             "updated_at": datetime.utcnow(),
         }}
