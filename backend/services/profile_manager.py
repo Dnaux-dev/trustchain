@@ -147,19 +147,30 @@ async def add_trusted_helper(user_id: str, helper_data: dict) -> str:
 
 
 async def get_user_helpers(user_id: str) -> list:
-    """Returns list of trusted helpers with their enrollment status."""
+    """Returns list of trusted helpers with their enrollment status.
+    Uses a single batch query instead of N round-trips per helper.
+    """
     db = get_db()
     user = await db.users.find_one({"_id": ObjectId(user_id)})
     if not user:
         return []
     helpers = user.get("trusted_helpers", [])
-    # Enrich with live enrollment status from helper_profiles
+    if not helpers:
+        return []
+
+    # Batch-fetch all helper profiles in one query
+    helper_ids = [h["helper_id"] for h in helpers]
+    cursor = db.helper_profiles.find({
+        "user_id": user_id,
+        "helper_id": {"$in": helper_ids},
+    })
+    profile_map = {}
+    async for hp in cursor:
+        profile_map[hp["helper_id"]] = hp
+
     enriched = []
     for h in helpers:
-        hp = await db.helper_profiles.find_one({
-            "user_id": user_id,
-            "helper_id": h["helper_id"]
-        })
+        hp = profile_map.get(h["helper_id"])
         enriched.append({
             **h,
             "is_enrolled": hp.get("is_enrolled", False) if hp else False,

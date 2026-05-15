@@ -18,7 +18,7 @@ from services.profile_manager import (
     get_or_create_profile, get_helper_profile,
     update_profile, get_user_helpers,
 )
-from services.squad_service import account_lookup, initiate_payment, verify_transaction
+from services.squad_service import account_lookup, initiate_payment, verify_transaction, fund_transfer
 from auth import get_current_user
 from database import get_db
 from config import settings
@@ -154,19 +154,34 @@ async def verify_session(
         )
 
     # ── 7. APPROVED — run Squad pipeline ─────────────────────────
+    HIGH_VALUE_THRESHOLD = 50_000  # naira
     try:
         # Step 1: Verify recipient account
         lookup = await account_lookup(body.recipientBankCode, body.recipientAccount)
         recipient_name = lookup["account_name"]
 
-        # Step 2: Initiate Squad payment
-        checkout_url, txn_ref = await initiate_payment(
-            user=user,
-            amount_naira=body.paymentAmount,
-            recipient_name=recipient_name,
-            session_id=session_id,
-            behavioral_score=behavioral_score,
-        )
+        if body.paymentAmount >= HIGH_VALUE_THRESHOLD:
+            # ── High-value: direct transfer via Squad payout API ──
+            transfer_data = await fund_transfer(
+                amount_naira=body.paymentAmount,
+                bank_code=body.recipientBankCode,
+                account_number=body.recipientAccount,
+                account_name=recipient_name,
+                session_id=session_id,
+                behavioral_score=behavioral_score,
+                remark=f"TrustChain verified — score {behavioral_score:.0f}/100",
+            )
+            txn_ref = transfer_data.get("transaction_reference", session_id)
+            checkout_url = None
+        else:
+            # ── Normal: Squad checkout URL ────────────────────────
+            checkout_url, txn_ref = await initiate_payment(
+                user=user,
+                amount_naira=body.paymentAmount,
+                recipient_name=recipient_name,
+                session_id=session_id,
+                behavioral_score=behavioral_score,
+            )
 
         # Step 3: Update session with Squad refs
         await db.sessions.update_one(
@@ -174,6 +189,7 @@ async def verify_session(
             {"$set": {
                 "squad_txn_ref": txn_ref,
                 "decision": "APPROVED",
+                "payment_method": "direct_transfer" if body.paymentAmount >= HIGH_VALUE_THRESHOLD else "checkout",
                 "updated_at": datetime.utcnow(),
             }}
         )
@@ -277,6 +293,7 @@ async def submit_challenge(
         )
 
     # APPROVED after challenge — run Squad pipeline
+    HIGH_VALUE_THRESHOLD = 50_000  # naira
     try:
         lookup = await account_lookup(
             session.get("recipient_bank_code", ""),
@@ -287,21 +304,36 @@ async def submit_challenge(
         # Reload user for payment info
         from bson import ObjectId as OID
         user_doc = await db.users.find_one({"_id": OID(user_id)})
+        payment_amount = session["payment_amount"]
 
-        checkout_url, txn_ref = await initiate_payment(
-            user=user_doc,
-            amount_naira=session["payment_amount"],
-            recipient_name=recipient_name,
-            session_id=body.sessionId,
-            behavioral_score=behavioral_score,
-            metadata={"challenge_type": profile_label},
-        )
+        if payment_amount >= HIGH_VALUE_THRESHOLD:
+            transfer_data = await fund_transfer(
+                amount_naira=payment_amount,
+                bank_code=session.get("recipient_bank_code", ""),
+                account_number=session.get("recipient_account", ""),
+                account_name=recipient_name,
+                session_id=body.sessionId,
+                behavioral_score=behavioral_score,
+                remark=f"TrustChain challenge-verified — score {behavioral_score:.0f}/100",
+            )
+            txn_ref = transfer_data.get("transaction_reference", body.sessionId)
+            checkout_url = None
+        else:
+            checkout_url, txn_ref = await initiate_payment(
+                user=user_doc,
+                amount_naira=payment_amount,
+                recipient_name=recipient_name,
+                session_id=body.sessionId,
+                behavioral_score=behavioral_score,
+                metadata={"challenge_type": profile_label},
+            )
 
         await db.sessions.update_one(
             {"_id": ObjectId(body.sessionId)},
             {"$set": {
                 "squad_txn_ref": txn_ref,
                 "decision": "APPROVED",
+                "payment_method": "direct_transfer" if payment_amount >= HIGH_VALUE_THRESHOLD else "checkout",
                 "updated_at": datetime.utcnow(),
             }}
         )

@@ -123,7 +123,8 @@ def extract_feature_vector(signals: Dict[str, Any]) -> np.ndarray:
     ]
 
     vector = np.array(features, dtype=np.float32)
-    assert len(vector) == 24, f"Vector length mismatch: {len(vector)}"
+    if len(vector) != 24:
+        raise ValueError(f"Feature vector length mismatch: expected 24, got {len(vector)}")
     return vector
 
 

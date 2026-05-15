@@ -13,6 +13,7 @@ from routers.payments import router as payments_router
 from routers.users import router as users_router
 from routers.webhook import router as webhook_router
 from routers.dashboard import router as dashboard_router
+from routers.admin import router as admin_router
 
 
 @asynccontextmanager
@@ -50,6 +51,7 @@ app.include_router(payments_router)
 app.include_router(users_router)
 app.include_router(webhook_router)
 app.include_router(dashboard_router)
+app.include_router(admin_router)
 
 
 @app.get("/", tags=["Health"])
