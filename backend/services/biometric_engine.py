@@ -37,7 +37,7 @@ def _build_default_model() -> IsolationForest:
     """
     rng = np.random.RandomState(42)
 
-    # Simulate 500 realistic human sessions (24 features each)
+    # Simulate 500 realistic human sessions (27 features each)
     # Feature ranges are based on typical mobile interaction studies
     synthetic = np.column_stack([
         rng.normal(85,  20,  500),   # S1: avg hold time
@@ -45,6 +45,9 @@ def _build_default_model() -> IsolationForest:
         rng.normal(82,  18,  500),   # S1: median hold
         rng.normal(62,  12,  500),   # S1: p25 hold
         rng.normal(108, 22,  500),   # S1: p75 hold
+        rng.normal(180, 60,  500),   # IKI: avg inter-keystroke interval
+        rng.normal(55,  20,  500),   # IKI: std inter-keystroke interval
+        rng.normal(160, 55,  500),   # IKI: median inter-keystroke interval
         rng.normal(0.35, 0.1, 500),  # S2: avg force
         rng.normal(0.06, 0.02,500),  # S2: std force
         rng.normal(11,   3,  500),   # S2: avg radius
@@ -186,14 +189,18 @@ def score_session(
 
 def classify_decision(behavioral_score: float) -> str:
     """
-    Three-tier decision:
-      70–100  → APPROVED
-      50–69   → CHALLENGE  (behavioral re-challenge, no OTP)
-      0–49    → BLOCKED
+    Three-tier decision driven by config thresholds:
+      >= BEHAVIORAL_SCORE_THRESHOLD     → APPROVED
+      >= BEHAVIORAL_CHALLENGE_THRESHOLD → CHALLENGE  (behavioral re-challenge, no OTP)
+      below both                        → BLOCKED
+
+    Default thresholds: approve=70.0, challenge=50.0
+    Override via BEHAVIORAL_SCORE_THRESHOLD and BEHAVIORAL_CHALLENGE_THRESHOLD in .env
     """
-    if behavioral_score >= 70:
+    from config import settings
+    if behavioral_score >= settings.BEHAVIORAL_SCORE_THRESHOLD:
         return "APPROVED"
-    elif behavioral_score >= 50:
+    elif behavioral_score >= settings.BEHAVIORAL_CHALLENGE_THRESHOLD:
         return "CHALLENGE"
     else:
         return "BLOCKED"

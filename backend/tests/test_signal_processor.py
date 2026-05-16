@@ -67,17 +67,17 @@ def make_paste_signals():
 # ── extract_feature_vector tests ───────────────────────────────────
 
 class TestExtractFeatureVector:
-    def test_returns_24_features_rich(self):
+    def test_returns_27_features_rich(self):
         signals = make_rich_signals()
         vec = extract_feature_vector(signals)
-        assert vec.shape == (24,), f"Expected shape (24,), got {vec.shape}"
+        assert vec.shape == (27,), f"Expected shape (27,), got {vec.shape}"
         assert vec.dtype == np.float32
 
-    def test_returns_24_features_empty(self):
-        """Empty signals must still produce a valid 24-length vector (defaults)."""
+    def test_returns_27_features_empty(self):
+        """Empty signals must still produce a valid 27-length vector (defaults)."""
         signals = make_empty_signals()
         vec = extract_feature_vector(signals)
-        assert vec.shape == (24,)
+        assert vec.shape == (27,)
         assert vec.dtype == np.float32
 
     def test_no_nan_or_inf_rich(self):
@@ -100,9 +100,9 @@ class TestExtractFeatureVector:
         assert vec[4] == pytest.approx(100.0)
 
     def test_paste_detected_feature(self):
-        """paste_count feature (index 18) should be > 0 when paste happened."""
+        """paste_count feature (index 21) should be > 0 when paste happened."""
         vec = extract_feature_vector(make_paste_signals())
-        assert vec[18] > 0, "Paste count not captured in feature 18"
+        assert vec[21] > 0, "Paste count not captured in feature 21"
 
     def test_rich_signals_vary_from_empty(self):
         """Rich and empty signal vectors should differ meaningfully."""
@@ -120,7 +120,7 @@ class TestExtractFeatureVector:
             "keystrokes": [{"key": "char", "downTime": 1000, "holdDuration": 90}],
         }
         vec = extract_feature_vector(signals)
-        assert vec.shape == (24,)
+        assert vec.shape == (27,)
 
 
 # ── signals_quality_score tests ────────────────────────────────────

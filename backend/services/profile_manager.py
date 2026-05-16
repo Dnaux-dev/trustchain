@@ -67,7 +67,11 @@ async def update_profile(user_id: str, new_vector: list, is_helper: bool = False
 
     profile = await collection.find_one(query)
     if not profile:
-        return
+        raise RuntimeError(
+            f"Behavioral profile not found for user_id={user_id}"
+            + (f", helper_id={helper_id}" if helper_id else "")
+            + ". Cannot update a profile that does not exist."
+        )
 
     vectors = profile.get("vectors", []) + [new_vector]
 
@@ -79,7 +83,7 @@ async def update_profile(user_id: str, new_vector: list, is_helper: bool = False
     enrollment_count = len(vectors)
     is_enrolled = enrollment_count >= settings.ENROLLMENT_SESSIONS_REQUIRED
 
-    await collection.update_one(
+    result = await collection.update_one(
         query,
         {"$set": {
             "vectors": vectors,
@@ -88,6 +92,12 @@ async def update_profile(user_id: str, new_vector: list, is_helper: bool = False
             "last_updated": datetime.utcnow(),
         }}
     )
+    if result.matched_count == 0:
+        raise RuntimeError(
+            f"Profile write failed for user_id={user_id}"
+            + (f", helper_id={helper_id}" if helper_id else "")
+            + ": document was not matched during update (possible race condition)."
+        )
 
     # Invalidate cache so next read fetches the updated profile from MongoDB
     if is_helper and helper_id:
@@ -97,13 +107,18 @@ async def update_profile(user_id: str, new_vector: list, is_helper: bool = False
 
     # Also update is_enrolled on user document
     if not is_helper:
-        await db.users.update_one(
+        user_result = await db.users.update_one(
             {"_id": ObjectId(user_id)},
             {"$set": {
                 "is_enrolled": is_enrolled,
                 "enrollment_sessions": enrollment_count,
             }}
         )
+        if user_result.matched_count == 0:
+            raise RuntimeError(
+                f"User document not found for user_id={user_id} "
+                "while syncing enrollment status."
+            )
 
 
 async def add_trusted_helper(user_id: str, helper_data: dict) -> str:

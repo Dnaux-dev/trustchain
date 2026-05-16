@@ -25,4 +25,9 @@ async def close_db():
 
 
 def get_db():
+    if db is None:
+        raise RuntimeError(
+            "Database connection is not initialised. "
+            "Ensure connect_db() has been called during application startup."
+        )
     return db

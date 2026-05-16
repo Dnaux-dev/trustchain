@@ -5,7 +5,7 @@ POST /payments/verify-session  — score session, gate payment
 POST /payments/challenge       — re-score after behavioral challenge
 GET  /payments/confirm         — Squad callback handler
 """
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime
 from bson import ObjectId
 from models.session import (
@@ -92,7 +92,7 @@ async def verify_session(
         # behaviour (< 50). No CHALLENGE tier — the profile is too sparse to
         # challenge against meaningfully. Approve everything >= 50 so vectors
         # accumulate and the full profile can form.
-        decision = "APPROVED" if behavioral_score >= 50 else "BLOCKED"
+        decision = "APPROVED" if behavioral_score >= settings.BEHAVIORAL_CHALLENGE_THRESHOLD else "BLOCKED"
     else:
         decision = classify_decision(behavioral_score)
 
@@ -123,8 +123,14 @@ async def verify_session(
     if decision == "BLOCKED":
         await db.sessions.update_one(
             {"_id": ObjectId(session_id)},
-            {"$set": {"block_reason": "behavioral_score_below_50"}}
+            {"$set": {"block_reason": "behavioral_score_below_threshold"}}
         )
+        # During enrollment: store the vector even on a blocked session so the
+        # user can accumulate the 3 sessions needed to build their baseline profile.
+        # Post-enrollment blocked sessions are NOT stored — attacker vectors must
+        # never contaminate an established legitimate profile.
+        if is_enrollment:
+            await update_profile(user_id, live_vector.tolist())
         return VerifySessionResponse(
             decision=SessionDecision.BLOCKED,
             behavioral_score=behavioral_score,
@@ -194,10 +200,7 @@ async def verify_session(
             }}
         )
 
-        # Step 4: Update behavioral profile (continuous learning)
-        await update_profile(user_id, live_vector.tolist())
-
-        return VerifySessionResponse(
+        approved_response = VerifySessionResponse(
             decision=SessionDecision.APPROVED,
             behavioral_score=behavioral_score,
             breakdown=breakdown,
@@ -212,6 +215,13 @@ async def verify_session(
             {"$set": {"decision": "BLOCKED", "block_reason": str(e)}}
         )
         raise HTTPException(502, f"Payment gateway error: {str(e)}")
+
+    # Profile update is best-effort — failure must never abort an in-flight payment
+    try:
+        await update_profile(user_id, live_vector.tolist())
+    except Exception as profile_err:
+        print(f"WARNING: Profile update failed for user {user_id}: {profile_err}")
+    return approved_response
 
 
 # ── POST /payments/challenge ──────────────────────────────────────
@@ -302,8 +312,9 @@ async def submit_challenge(
         recipient_name = lookup["account_name"]
 
         # Reload user for payment info
-        from bson import ObjectId as OID
-        user_doc = await db.users.find_one({"_id": OID(user_id)})
+        user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not user_doc:
+            raise HTTPException(404, "User account not found")
         payment_amount = session["payment_amount"]
 
         if payment_amount >= HIGH_VALUE_THRESHOLD:
@@ -338,13 +349,7 @@ async def submit_challenge(
             }}
         )
 
-        # Update the correct profile
-        if is_helper:
-            await update_profile(user_id, live_vector.tolist(), is_helper=True, helper_id=body.helperId)
-        else:
-            await update_profile(user_id, live_vector.tolist())
-
-        return VerifySessionResponse(
+        challenge_response = VerifySessionResponse(
             decision=SessionDecision.APPROVED,
             behavioral_score=behavioral_score,
             breakdown=breakdown,
@@ -355,6 +360,16 @@ async def submit_challenge(
 
     except ValueError as e:
         raise HTTPException(502, str(e))
+
+    # Profile update is best-effort — failure must never abort an in-flight payment
+    try:
+        if is_helper:
+            await update_profile(user_id, live_vector.tolist(), is_helper=True, helper_id=body.helperId)
+        else:
+            await update_profile(user_id, live_vector.tolist())
+    except Exception as profile_err:
+        print(f"WARNING: Profile update failed for user {user_id}: {profile_err}")
+    return challenge_response
 
 
 # ── GET /payments/confirm ─────────────────────────────────────────

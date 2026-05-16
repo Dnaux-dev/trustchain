@@ -6,15 +6,16 @@ Protected by a simple API key header (ADMIN_API_KEY from env).
 from fastapi import APIRouter, HTTPException, Header
 from database import get_db
 from services.biometric_engine import retrain_model
-from config import settings
 import os
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
-_ADMIN_KEY = os.environ.get("ADMIN_API_KEY", "trustchain-admin-dev")
+_ADMIN_KEY: str | None = os.environ.get("ADMIN_API_KEY")
 
 
 def _check_key(x_admin_key: str | None):
+    if not _ADMIN_KEY:
+        raise HTTPException(503, "Admin API key not configured on this server")
     if not x_admin_key or x_admin_key != _ADMIN_KEY:
         raise HTTPException(403, "Forbidden — invalid admin key")
 

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "TrustChain"
     APP_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:5173"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # Security
     SECRET_KEY: str
@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Biometric Engine
     BEHAVIORAL_SCORE_THRESHOLD: float = 70.0
+    BEHAVIORAL_CHALLENGE_THRESHOLD: float = 50.0
     ENROLLMENT_SESSIONS_REQUIRED: int = 3
     MAX_PROFILE_VECTORS: int = 50
 

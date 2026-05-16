@@ -21,13 +21,19 @@ async def account_lookup(bank_code: str, account_number: str) -> dict:
     Used to verify recipient before any transfer.
     Raises ValueError if account not found.
     """
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        res = await client.post(
-            f"{BASE}/payout/account/lookup",
-            json={"bank_code": bank_code, "account_number": account_number},
-            headers=HEADERS,
-        )
-    data = res.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.post(
+                f"{BASE}/payout/account/lookup",
+                json={"bank_code": bank_code, "account_number": account_number},
+                headers=HEADERS,
+            )
+    except httpx.RequestError as exc:
+        raise ValueError(f"Squad API unreachable: {exc}")
+    try:
+        data = res.json()
+    except Exception:
+        raise ValueError(f"Squad API returned non-JSON response (HTTP {res.status_code})")
     if data.get("status") != 200:
         raise ValueError(f"Account lookup failed: {data.get('message', 'Unknown error')}")
     return data["data"]  # { account_name, account_number }
@@ -66,13 +72,19 @@ async def initiate_payment(
         },
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        res = await client.post(
-            f"{BASE}/transaction/initiate",
-            json=payload,
-            headers=HEADERS,
-        )
-    data = res.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.post(
+                f"{BASE}/transaction/initiate",
+                json=payload,
+                headers=HEADERS,
+            )
+    except httpx.RequestError as exc:
+        raise ValueError(f"Squad API unreachable: {exc}")
+    try:
+        data = res.json()
+    except Exception:
+        raise ValueError(f"Squad API returned non-JSON response (HTTP {res.status_code})")
     if data.get("status") != 200:
         raise ValueError(f"Squad payment initiation failed: {data.get('message')}")
 
@@ -84,12 +96,18 @@ async def verify_transaction(transaction_ref: str) -> dict:
     Verify a transaction after Squad callback.
     Returns transaction data if successful.
     """
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        res = await client.get(
-            f"{BASE}/transaction/verify/{transaction_ref}",
-            headers=HEADERS,
-        )
-    data = res.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.get(
+                f"{BASE}/transaction/verify/{transaction_ref}",
+                headers=HEADERS,
+            )
+    except httpx.RequestError as exc:
+        raise ValueError(f"Squad API unreachable: {exc}")
+    try:
+        data = res.json()
+    except Exception:
+        raise ValueError(f"Squad API returned non-JSON response (HTTP {res.status_code})")
     if data.get("status") != 200:
         raise ValueError(f"Transaction verification failed: {data.get('message')}")
     return data["data"]
@@ -121,13 +139,19 @@ async def fund_transfer(
         "remark": remark or f"TrustChain verified payment — score {behavioral_score:.0f}/100",
     }
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        res = await client.post(
-            f"{BASE}/payout/transfer",
-            json=payload,
-            headers=HEADERS,
-        )
-    data = res.json()
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            res = await client.post(
+                f"{BASE}/payout/transfer",
+                json=payload,
+                headers=HEADERS,
+            )
+    except httpx.RequestError as exc:
+        raise ValueError(f"Squad API unreachable: {exc}")
+    try:
+        data = res.json()
+    except Exception:
+        raise ValueError(f"Squad API returned non-JSON response (HTTP {res.status_code})")
     if data.get("status") != 200:
         raise ValueError(f"Fund transfer failed: {data.get('message')}")
     return data["data"]
@@ -135,10 +159,16 @@ async def fund_transfer(
 
 async def requery_transfer(transaction_reference: str) -> dict:
     """Re-query a transfer to confirm its final status."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        res = await client.post(
-            f"{BASE}/payout/requery",
-            json={"transaction_reference": transaction_reference},
-            headers=HEADERS,
-        )
-    return res.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.post(
+                f"{BASE}/payout/requery",
+                json={"transaction_reference": transaction_reference},
+                headers=HEADERS,
+            )
+    except httpx.RequestError as exc:
+        raise ValueError(f"Squad API unreachable: {exc}")
+    try:
+        return res.json()
+    except Exception:
+        raise ValueError(f"Squad API returned non-JSON response (HTTP {res.status_code})")

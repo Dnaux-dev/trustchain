@@ -1,11 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from bson import ObjectId
-from datetime import datetime
-from models.user import TrustedHelperAdd, UserOut, TrustedHelperOut
+from models.user import TrustedHelperAdd, UserOut
 from services.profile_manager import (
     get_or_create_profile, add_trusted_helper, get_user_helpers
 )
-from services.squad_service import account_lookup
 from auth import get_current_user
 from database import get_db
 
