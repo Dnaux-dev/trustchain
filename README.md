@@ -1,143 +1,90 @@
-# TrustChain Backend
+# TrustChain: Behavioral Biometric Payment Security
 
 > "We don't ask if you know your password. We ask if you move like yourself."
 
-Behavioral Biometric Payment Fraud Prevention — Squad Hackathon 3.0, Challenge 01.
+**TrustChain** is a state-of-the-art behavioral biometric payment fraud prevention system built for **Squad Hackathon 3.0 (Challenge 01)**. It eliminates the friction of traditional OTPs and PINs by using a "silent" layer of security that verifies users based on how they interact with their devices.
 
 ---
 
-## Quick Start
+## 🏗️ Project Architecture
 
-### 1. Clone & enter the backend folder
-```bash
-cd trustchain/backend
-```
+The repository is structured as a monorepo containing two main components:
 
-### 2. Create a virtual environment
+- **[Backend](./backend)**: A high-performance FastAPI server that handles ML-based behavioral scoring, Squad payment gateway integration, and real-time fraud intelligence.
+- **[Frontend (trustchain-v2)](./trustchain-v2)**: A modern React-based web application featuring a stunning dashboard, a "Sleek" UI/UX, and the core behavioral signal capture engine.
+
+---
+
+## 🔄 The TrustChain Flow
+
+TrustChain operates through a continuous learning and verification loop:
+
+### 1. Behavioral Onboarding
+During registration, users complete a series of "training sessions" where the system captures their baseline behavioral DNA (typing speed, rhythm, scroll velocity, mouse movement jitter). This baseline is stored as a multi-dimensional feature vector.
+
+### 2. Intelligent Signal Capture
+As the user navigates the dashboard or initiates a payment, the **TrustChain SDK** (embedded in the frontend) silently monitors hundreds of data points without ever touching sensitive PII.
+
+### 3. Real-time ML Scoring
+The backend processes raw signals through a dual-model pipeline:
+- **Isolation Forest**: Detects statistical anomalies in the current session compared to the user's history.
+- **Cosine Similarity**: Measures the "angular distance" between the current session's vector and the user's historical baseline.
+
+### 4. Adaptive Gating
+Based on the behavioral score, the system makes an instant decision:
+- **Score 70–100 (Low Risk)**: Transaction is **Approved** and sent to Squad for processing.
+- **Score 50–69 (Medium Risk)**: User is issued a **Challenge** (e.g., a specific behavioral pattern test) to re-verify identity.
+- **Score 0–49 (High Risk)**: Transaction is **Blocked**. The payment is never initiated, and a risk alert is logged.
+
+---
+
+## 📂 Component Breakdown
+
+### 🖥️ Backend (`/backend`)
+Powered by **Python 3.10+** and **FastAPI**.
+
+- **Tech Stack**: FastAPI, MongoDB (Motor), Redis + RQ (Retraining), Scikit-Learn, Google Gemini AI (Fraud Intelligence).
+- **Core Engine**: 
+    - `biometric_engine.py`: The heart of the scoring logic.
+    - `signal_processor.py`: Converts raw JSON signals into a 24-feature ML vector.
+    - `retrain_worker.py`: Background worker that updates user models as they continue to use the system.
+    - `squad_service.py`: Direct integration with Squad Payment APIs for payouts and verification.
+
+### 📱 Frontend (`/trustchain-v2`)
+Powered by **React** and **Vite**.
+
+- **Tech Stack**: React 18, Zustand (State), Recharts (Analytics), Lucide (Icons), Framer Motion (Animations).
+- **Key Features**:
+    - **Real-time Risk Feed**: A live stream of behavioral security events.
+    - **Trust Score Analytics**: Visual representation of user behavioral stability.
+    - **Squad Integration**: Seamless payment flows protected by behavioral gating.
+    - **Adaptive UI**: Changes state based on the risk score returned by the backend.
+
+---
+
+## 🛠️ Getting Started
+
+### 1. Backend Setup
 ```bash
+cd backend
 python -m venv venv
-source venv/bin/activate        # Mac/Linux
-venv\Scripts\activate           # Windows
-```
-
-### 3. Install dependencies
-```bash
+# Activate venv: source venv/bin/activate (Mac/Linux) or venv\Scripts\activate (Windows)
 pip install -r requirements.txt
-```
-
-### 4. Set up environment variables
-```bash
-cp .env.example .env
-# Now open .env and fill in your values (see ENV GUIDE below)
-```
-
-### 5. Run the server
-```bash
+cp .env.example .env # Configure your MongoDB, Redis, and Squad keys
 fastapi dev
 ```
 
-Visit: http://localhost:8000  
-API Docs: http://localhost:8000/docs
-
----
-
-## ENV Guide — What Each Variable Means
-
-### SECRET_KEY
-Generate a random secret for JWT signing:
+### 2. Frontend Setup
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"
+cd trustchain-v2
+npm install
+npm run dev
 ```
-Copy the output and paste it as SECRET_KEY.
-
-### MONGODB_URL
-1. Go to https://cloud.mongodb.com
-2. Create a free cluster (M0)
-3. Click "Connect" → "Drivers" → copy the connection string
-4. Replace `<password>` with your DB user password
-5. Replace `myFirstDatabase` with `trustchain`
-
-Example:
-```
-MONGODB_URL=mongodb+srv://ajilore:mypassword@cluster0.abc12.mongodb.net/trustchain?retryWrites=true&w=majority
-```
-
-### REDIS_URL
-For local development, install Redis:
-- Mac: `brew install redis && brew services start redis`
-- Ubuntu: `sudo apt install redis-server && sudo systemctl start redis`
-- Windows: Use WSL or Redis for Windows
-
-Then set: `REDIS_URL=redis://localhost:6379`
-
-Or use Redis Cloud free tier: https://redis.com/try-free/
-
-### SQUAD API Keys
-1. Go to https://sandbox.squadco.com/sign-up
-2. Create a sandbox account
-3. Go to Merchant Settings → API & Webhook tab
-4. Copy your Secret Key, Public Key, and Merchant ID
-5. Set your webhook URL to: `https://your-domain.com/webhooks/squad`
 
 ---
 
-## API Endpoints
+## 🛡️ Squad Integration
+TrustChain uses the **Squad Virtual Account & Payout API** to verify merchant identity and secure high-value transfers. No payment is ever fired unless the behavioral score passes the trust threshold.
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | /auth/register | Register + Squad bank verification |
-| POST | /auth/login | Login → JWT |
-| POST | /payments/verify-session | Core: score behavior + gate payment |
-| POST | /payments/challenge | Re-score after behavioral challenge |
-| GET  | /payments/confirm | Squad callback handler |
-| GET  | /users/me | My profile |
-| GET  | /users/me/profile | Behavioral profile stats |
-| GET  | /users/me/sessions | Session history |
-| POST | /users/me/helpers | Add trusted helper |
-| GET  | /users/me/helpers | List trusted helpers |
-| GET  | /dashboard/stats | Personal stats |
-| GET  | /dashboard/risk-feed | Recent blocked sessions |
-| POST | /webhooks/squad | Squad webhook receiver |
-
----
-
-## Decision Logic
-
-```
-Score 70–100  →  APPROVED  →  Squad payment fires
-Score 50–69   →  CHALLENGE →  Behavioral re-challenge screen
-Score 0–49    →  BLOCKED   →  Squad never called, alert logged
-```
-
-No OTP. No PIN. No camera. Purely behavioral — always.
-
----
-
-## Project Structure
-
-```
-backend/
-├── main.py                  # FastAPI entry point
-├── config.py                # Settings from .env
-├── database.py              # MongoDB connection
-├── auth.py                  # JWT + password utils
-├── models/
-│   ├── user.py              # User schemas
-│   └── session.py           # Session + signal schemas
-├── routers/
-│   ├── auth.py              # /auth/*
-│   ├── payments.py          # /payments/*  ← CORE
-│   ├── users.py             # /users/*
-│   ├── webhook.py           # /webhooks/*
-│   └── dashboard.py         # /dashboard/*
-├── services/
-│   ├── signal_processor.py  # Raw signals → 24-feature vector
-│   ├── biometric_engine.py  # Isolation Forest + Cosine Similarity
-│   ├── profile_manager.py   # Profile storage + learning
-│   └── squad_service.py     # All Squad API calls
-├── ml/
-│   └── models/              # Serialized .pkl model files
-├── .env.example             # Environment template
-├── requirements.txt
-└── README.md
-```
+## 📄 License
+This project was developed for the Squad Hackathon 3.0. All rights reserved.
