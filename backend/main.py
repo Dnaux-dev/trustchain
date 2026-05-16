@@ -14,7 +14,7 @@ from routers.users import router as users_router
 from routers.webhook import router as webhook_router
 from routers.dashboard import router as dashboard_router
 from routers.admin import router as admin_router
-
+from routers.linked_banks import router as banks_router
 from routers.fraud_intelligence import router as intelligence_router
 
 
@@ -58,6 +58,7 @@ app.include_router(webhook_router)
 app.include_router(dashboard_router)
 app.include_router(admin_router)
 app.include_router(intelligence_router)
+app.include_router(banks_router)
 
 
 @app.get("/", tags=["Health"])
