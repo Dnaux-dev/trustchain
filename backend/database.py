@@ -1,33 +1,31 @@
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
-from config import settings
 
-client: AsyncIOMotorClient = None
-db = None
-
-
-async def connect_db():
-    global client, db
-    client = AsyncIOMotorClient(settings.MONGODB_URL)
-    db = client[settings.DATABASE_NAME]
-    # Create indexes for fast lookups
-    await db.users.create_index("email", unique=True)
-    await db.sessions.create_index("user_id")
-    await db.sessions.create_index("squad_txn_ref")
-    await db.behavioral_profiles.create_index("user_id", unique=True)
-    print(f"✅ Connected to MongoDB: {settings.DATABASE_NAME}")
-
-
-async def close_db():
-    global client
-    if client:
-        client.close()
-        print("MongoDB connection closed")
+_client = None
+_db = None
 
 
 def get_db():
-    if db is None:
+    global _client, _db
+
+    if _db is not None:
+        return _db
+
+    mongo_url = os.getenv("MONGODB_URL", "")
+    db_name = os.getenv("DATABASE_NAME", "trustchain")
+
+    if not mongo_url:
         raise RuntimeError(
-            "Database connection is not initialised. "
-            "Ensure connect_db() has been called during application startup."
+            "MONGODB_URL is not set. "
+            "Go to Render → Environment → Add MONGODB_URL"
         )
-    return db
+
+    _client = AsyncIOMotorClient(
+        mongo_url,
+        serverSelectionTimeoutMS=10000,
+        connectTimeoutMS=10000,
+        socketTimeoutMS=10000,
+        maxPoolSize=10,
+    )
+    _db = _client[db_name]
+    return _db
