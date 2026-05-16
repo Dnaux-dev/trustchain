@@ -44,5 +44,11 @@ export const intelligenceAPI = {
   getCreditScore: () => api.get('/intelligence/credit-score'),
   refreshProfile: () => api.post('/intelligence/refresh-profile'),
 }
+export const banksAPI = {
+  getLinkedBanks: () => api.get('/linked-banks'),
+  linkBank: d => api.post('/linked-banks', d),
+  unlinkBank: id => api.delete(`/linked-banks/${id}`),
+  setPrimary: id => api.post(`/linked-banks/${id}/primary`),
+}
 
 export default api
