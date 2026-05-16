@@ -1,0 +1,241 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ═══════════════════════════════════════════════════════════
+   SQUAD DESIGN SYSTEM — DARK THEME (Default)
+═══════════════════════════════════════════════════════════ */
+:root {
+  --bg: #000000;
+  --bg-secondary: #0A0A0A;
+  --bg-card: #111111;
+  --bg-card-hover: #161616;
+  --bg-input: #0A0A0A;
+  --bg-modal: #0D0D0D;
+  --bg-nav: rgba(0,0,0,0.85);
+
+  /* Squad Brand Colors */
+  --brand: #E55B13; /* Primary Orange */
+  --brand-bright: #FF6B1A;
+  --brand-dim: rgba(229, 91, 19, 0.12);
+  --brand-glow: rgba(229, 91, 19, 0.25);
+
+  --accent: #FFFFFF;
+  --accent-dim: rgba(255, 255, 255, 0.1);
+
+  /* Status Colors */
+  --green: #00D180;
+  --green-dim: rgba(0, 209, 128, 0.1);
+  --red: #FF3B30;
+  --red-dim: rgba(255, 59, 48, 0.1);
+  --gold: #FFB800;
+  --gold-dim: rgba(255, 184, 0, 0.1);
+  --blue: #007AFF;
+  --blue-dim: rgba(0, 122, 255, 0.1);
+
+  --text: #FFFFFF;
+  --text-muted: #A1A1A1;
+  --text-dim: #525252;
+
+  --border: rgba(255, 255, 255, 0.1);
+  --border-bright: rgba(229, 91, 19, 0.4);
+  --border-card: rgba(255, 255, 255, 0.08);
+
+  /* Typography */
+  --font-display: 'Geist', 'Inter', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'Geist Mono', monospace;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 20px;
+
+  --shadow-brand: 0 8px 32px rgba(229, 91, 19, 0.15);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.5);
+
+  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SQUAD DESIGN SYSTEM — LIGHT THEME
+═══════════════════════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg: #FFFFFF;
+  --bg-secondary: #F9F9F9;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F5F5F5;
+  --bg-input: #F3F3F3;
+  --bg-modal: #FFFFFF;
+  --bg-nav: rgba(255, 255, 255, 0.9);
+
+  --brand: #E55B13;
+  --brand-bright: #D44D0C;
+  --brand-dim: rgba(229, 91, 19, 0.08);
+  --brand-glow: rgba(229, 91, 19, 0.15);
+
+  --accent: #000000;
+  --text: #000000;
+  --text-muted: #666666;
+  --text-dim: #A1A1A1;
+
+  --border: rgba(0, 0, 0, 0.08);
+  --border-bright: rgba(229, 91, 19, 0.3);
+  --border-card: rgba(0, 0, 0, 0.05);
+
+  --shadow-brand: 0 8px 32px rgba(229, 91, 19, 0.1);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BASE STYLES
+═══════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.3s, color 0.3s;
+}
+
+h1, h2, h3, h4, .geist {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mono { font-family: var(--font-mono); }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  transition: var(--transition);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  background: var(--brand);
+  color: #FFFFFF;
+}
+.btn-primary:hover {
+  background: var(--brand-bright);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-brand);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-ghost:hover {
+  background: var(--bg-secondary);
+  border-color: var(--text-dim);
+}
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius);
+  padding: 24px;
+  transition: var(--transition);
+}
+.card:hover {
+  border-color: var(--border-bright);
+}
+
+/* Input Fields */
+.input-field {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  color: var(--text);
+  font-family: var(--font-body);
+  transition: var(--transition);
+}
+.input-field:focus {
+  border-color: var(--brand);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-glow);
+}
+
+/* Hero Gradient Text */
+.gradient-text {
+  background: linear-gradient(90deg, var(--brand) 0%, #FFA500 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.anim-fade-up { animation: fadeUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* Dashboard Wallet Card - Squad Styled */
+.wallet-card {
+  background: linear-gradient(135deg, #1A1A1A 0%, #000000 100%);
+  border: 1px solid var(--brand);
+  position: relative;
+  overflow: hidden;
+  color: #FFFFFF;
+}
+.wallet-card::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  right: -10%;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, var(--brand-dim) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Status Badges */
+.badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-green { background: var(--green-dim); color: var(--green); }
+.badge-red { background: var(--red-dim); color: var(--red); }
+.badge-gold { background: var(--gold-dim); color: var(--gold); }
+
+/* Navigation */
+nav {
+  background: var(--bg-nav);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  height: 64px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 1000;
+}
+
+/* Footer */
+footer {
+  padding: 40px 24px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}

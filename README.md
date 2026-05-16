@@ -33,7 +33,7 @@ cp .env.example .env
 
 ### 5. Run the server
 ```bash
-uvicorn main:app --reload --port 8000
+fastapi dev
 ```
 
 Visit: http://localhost:8000  

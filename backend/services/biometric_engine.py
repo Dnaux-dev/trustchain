@@ -137,16 +137,33 @@ def score_session(
     recent = np.array(stored_vectors[-20:], dtype=np.float32)
     centroid = np.mean(recent, axis=0)
 
-    # Cosine similarity: 1.0 = identical, 0.0 = completely different
-    # clip to avoid numerical issues
-    similarity = float(np.clip(1 - cosine(live_vector, centroid), 0, 1))
+    # Per-feature std — computed once, reused for normalization and variance penalty
+    feature_stds = np.std(recent, axis=0)
+
+    # Per-feature normalization before cosine similarity.
+    # Divides each dimension by the profile's own per-feature std so that
+    # all 24 features contribute equally regardless of their absolute scale.
+    # Without this, high-magnitude features (e.g. field duration ~3200 ms)
+    # dominate the L2 norm and effectively reduce cosine to a single-feature
+    # comparison.
+    # Floor at 1e-3: activates only for genuinely constant dimensions
+    # (real-variance features have std >> 1e-3). When all stds are zero
+    # (single stored vector), every dimension is floored equally and the
+    # cosine result is identical to the unnormalized case.
+    feature_scales = np.maximum(feature_stds, 1e-3)
+    centroid_norm = centroid / feature_scales
+    live_norm = live_vector / feature_scales
+
+    # Cosine similarity on scale-normalized vectors: 1.0 = identical direction
+    similarity = float(np.clip(1 - cosine(live_norm, centroid_norm), 0, 1))
     profile_score = similarity * 100
 
     # Profile confidence grows with more sessions, stabilises at 20+
     confidence = float(np.clip(sessions_in_profile / 20, 0, 1))
 
     # Variance of stored profile — high variance = uncertain baseline
-    variance_penalty = float(np.mean(np.std(recent, axis=0))) / 50
+    # Reuses feature_stds already computed above
+    variance_penalty = float(np.mean(feature_stds)) / 50
     variance_penalty = np.clip(variance_penalty, 0, 0.3)
 
     # ── Weighted combination ───────────────────────────────────────

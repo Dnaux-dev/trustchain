@@ -18,7 +18,7 @@ from services.profile_manager import (
     get_or_create_profile, get_helper_profile,
     update_profile, get_user_helpers,
 )
-from services.squad_service import account_lookup, initiate_payment, verify_transaction
+from services.squad_service import account_lookup, initiate_payment, verify_transaction, fund_transfer
 from auth import get_current_user
 from database import get_db
 from config import settings
@@ -27,7 +27,12 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
 # ── Helper: build a session document ─────────────────────────────
-def _new_session(user_id: str, amount: float) -> dict:
+def _new_session(
+    user_id: str,
+    amount: float,
+    recipient_bank_code: str,
+    recipient_account: str,
+) -> dict:
     return {
         "user_id": user_id,
         "behavioral_score": 0.0,
@@ -35,6 +40,8 @@ def _new_session(user_id: str, amount: float) -> dict:
         "stage2_score": None,
         "profile_confidence": 0.0,
         "payment_amount": amount,
+        "recipient_bank_code": recipient_bank_code,
+        "recipient_account": recipient_account,
         "decision": "PENDING",
         "block_reason": None,
         "squad_txn_ref": None,
@@ -55,7 +62,12 @@ async def verify_session(
     user_id = user["id"]
 
     # ── 1. Create session record ──────────────────────────────────
-    session_doc = _new_session(user_id, body.paymentAmount)
+    session_doc = _new_session(
+        user_id,
+        body.paymentAmount,
+        body.recipientBankCode,
+        body.recipientAccount,
+    )
     result = await db.sessions.insert_one(session_doc)
     session_id = str(result.inserted_id)
 
@@ -74,7 +86,15 @@ async def verify_session(
         behavioral_score = behavioral_score * (0.7 + 0.3 * quality)
         behavioral_score = round(behavioral_score, 1)
 
-    decision = classify_decision(behavioral_score)
+    is_enrollment = score_result["is_enrollment"]
+    if is_enrollment:
+        # Enrollment sessions (< 3 vectors in profile): only block truly anomalous
+        # behaviour (< 50). No CHALLENGE tier — the profile is too sparse to
+        # challenge against meaningfully. Approve everything >= 50 so vectors
+        # accumulate and the full profile can form.
+        decision = "APPROVED" if behavioral_score >= 50 else "BLOCKED"
+    else:
+        decision = classify_decision(behavioral_score)
 
     breakdown = ScoreBreakdown(
         stage1_isolation_forest=score_result["stage1_score"],
@@ -93,7 +113,7 @@ async def verify_session(
             "stage2_score": score_result.get("stage2_score"),
             "profile_confidence": score_result["profile_confidence"],
             "signal_quality": quality,
-            "signal_hash": body.behavioralData.signals.dict().get("signalHash", ""),
+            "is_enrollment": is_enrollment,
             "decision": decision,
             "updated_at": datetime.utcnow(),
         }}
@@ -134,19 +154,34 @@ async def verify_session(
         )
 
     # ── 7. APPROVED — run Squad pipeline ─────────────────────────
+    HIGH_VALUE_THRESHOLD = 50_000  # naira
     try:
         # Step 1: Verify recipient account
         lookup = await account_lookup(body.recipientBankCode, body.recipientAccount)
         recipient_name = lookup["account_name"]
 
-        # Step 2: Initiate Squad payment
-        checkout_url, txn_ref = await initiate_payment(
-            user=user,
-            amount_naira=body.paymentAmount,
-            recipient_name=recipient_name,
-            session_id=session_id,
-            behavioral_score=behavioral_score,
-        )
+        if body.paymentAmount >= HIGH_VALUE_THRESHOLD:
+            # ── High-value: direct transfer via Squad payout API ──
+            transfer_data = await fund_transfer(
+                amount_naira=body.paymentAmount,
+                bank_code=body.recipientBankCode,
+                account_number=body.recipientAccount,
+                account_name=recipient_name,
+                session_id=session_id,
+                behavioral_score=behavioral_score,
+                remark=f"TrustChain verified — score {behavioral_score:.0f}/100",
+            )
+            txn_ref = transfer_data.get("transaction_reference", session_id)
+            checkout_url = None
+        else:
+            # ── Normal: Squad checkout URL ────────────────────────
+            checkout_url, txn_ref = await initiate_payment(
+                user=user,
+                amount_naira=body.paymentAmount,
+                recipient_name=recipient_name,
+                session_id=session_id,
+                behavioral_score=behavioral_score,
+            )
 
         # Step 3: Update session with Squad refs
         await db.sessions.update_one(
@@ -154,6 +189,7 @@ async def verify_session(
             {"$set": {
                 "squad_txn_ref": txn_ref,
                 "decision": "APPROVED",
+                "payment_method": "direct_transfer" if body.paymentAmount >= HIGH_VALUE_THRESHOLD else "checkout",
                 "updated_at": datetime.utcnow(),
             }}
         )
@@ -220,6 +256,9 @@ async def submit_challenge(
     behavioral_score = score_result["behavioral_score"]
     decision = classify_decision(behavioral_score)
 
+    # Compute post-increment value before the DB write
+    incremented_attempts = session.get("challenge_attempts", 0) + 1
+
     # Increment challenge attempt counter
     await db.sessions.update_one(
         {"_id": ObjectId(body.sessionId)},
@@ -240,7 +279,7 @@ async def submit_challenge(
     )
 
     # BLOCKED after challenge
-    if decision == "BLOCKED" or (decision == "CHALLENGE" and session.get("challenge_attempts", 0) >= 1):
+    if decision == "BLOCKED" or (decision == "CHALLENGE" and incremented_attempts >= 2):
         await db.sessions.update_one(
             {"_id": ObjectId(body.sessionId)},
             {"$set": {"decision": "BLOCKED", "block_reason": "challenge_failed"}}
@@ -254,6 +293,7 @@ async def submit_challenge(
         )
 
     # APPROVED after challenge — run Squad pipeline
+    HIGH_VALUE_THRESHOLD = 50_000  # naira
     try:
         lookup = await account_lookup(
             session.get("recipient_bank_code", ""),
@@ -264,21 +304,36 @@ async def submit_challenge(
         # Reload user for payment info
         from bson import ObjectId as OID
         user_doc = await db.users.find_one({"_id": OID(user_id)})
+        payment_amount = session["payment_amount"]
 
-        checkout_url, txn_ref = await initiate_payment(
-            user=user_doc,
-            amount_naira=session["payment_amount"],
-            recipient_name=recipient_name,
-            session_id=body.sessionId,
-            behavioral_score=behavioral_score,
-            metadata={"challenge_type": profile_label},
-        )
+        if payment_amount >= HIGH_VALUE_THRESHOLD:
+            transfer_data = await fund_transfer(
+                amount_naira=payment_amount,
+                bank_code=session.get("recipient_bank_code", ""),
+                account_number=session.get("recipient_account", ""),
+                account_name=recipient_name,
+                session_id=body.sessionId,
+                behavioral_score=behavioral_score,
+                remark=f"TrustChain challenge-verified — score {behavioral_score:.0f}/100",
+            )
+            txn_ref = transfer_data.get("transaction_reference", body.sessionId)
+            checkout_url = None
+        else:
+            checkout_url, txn_ref = await initiate_payment(
+                user=user_doc,
+                amount_naira=payment_amount,
+                recipient_name=recipient_name,
+                session_id=body.sessionId,
+                behavioral_score=behavioral_score,
+                metadata={"challenge_type": profile_label},
+            )
 
         await db.sessions.update_one(
             {"_id": ObjectId(body.sessionId)},
             {"$set": {
                 "squad_txn_ref": txn_ref,
                 "decision": "APPROVED",
+                "payment_method": "direct_transfer" if payment_amount >= HIGH_VALUE_THRESHOLD else "checkout",
                 "updated_at": datetime.utcnow(),
             }}
         )

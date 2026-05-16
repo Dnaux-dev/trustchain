@@ -8,9 +8,17 @@ from typing import Optional
 from bson import ObjectId
 from database import get_db
 from config import settings
+from services.cache import (
+    get_cached_profile, set_cached_profile, invalidate_profile,
+    get_cached_helper_profile, set_cached_helper_profile, invalidate_helper_profile,
+)
 
 
 async def get_or_create_profile(user_id: str) -> dict:
+    cached = await get_cached_profile(user_id)
+    if cached:
+        return cached
+
     db = get_db()
     profile = await db.behavioral_profiles.find_one({"user_id": user_id})
     if not profile:
@@ -23,15 +31,24 @@ async def get_or_create_profile(user_id: str) -> dict:
             "last_updated": datetime.utcnow(),
         }
         await db.behavioral_profiles.insert_one(profile)
+
+    await set_cached_profile(user_id, profile)
     return profile
 
 
 async def get_helper_profile(user_id: str, helper_id: str) -> Optional[dict]:
+    cached = await get_cached_helper_profile(user_id, helper_id)
+    if cached:
+        return cached
+
     db = get_db()
-    return await db.helper_profiles.find_one({
+    profile = await db.helper_profiles.find_one({
         "user_id": user_id,
         "helper_id": helper_id,
     })
+    if profile:
+        await set_cached_helper_profile(user_id, helper_id, profile)
+    return profile
 
 
 async def update_profile(user_id: str, new_vector: list, is_helper: bool = False, helper_id: str = None):
@@ -71,6 +88,12 @@ async def update_profile(user_id: str, new_vector: list, is_helper: bool = False
             "last_updated": datetime.utcnow(),
         }}
     )
+
+    # Invalidate cache so next read fetches the updated profile from MongoDB
+    if is_helper and helper_id:
+        await invalidate_helper_profile(user_id, helper_id)
+    else:
+        await invalidate_profile(user_id)
 
     # Also update is_enrolled on user document
     if not is_helper:
@@ -124,19 +147,30 @@ async def add_trusted_helper(user_id: str, helper_data: dict) -> str:
 
 
 async def get_user_helpers(user_id: str) -> list:
-    """Returns list of trusted helpers with their enrollment status."""
+    """Returns list of trusted helpers with their enrollment status.
+    Uses a single batch query instead of N round-trips per helper.
+    """
     db = get_db()
     user = await db.users.find_one({"_id": ObjectId(user_id)})
     if not user:
         return []
     helpers = user.get("trusted_helpers", [])
-    # Enrich with live enrollment status from helper_profiles
+    if not helpers:
+        return []
+
+    # Batch-fetch all helper profiles in one query
+    helper_ids = [h["helper_id"] for h in helpers]
+    cursor = db.helper_profiles.find({
+        "user_id": user_id,
+        "helper_id": {"$in": helper_ids},
+    })
+    profile_map = {}
+    async for hp in cursor:
+        profile_map[hp["helper_id"]] = hp
+
     enriched = []
     for h in helpers:
-        hp = await db.helper_profiles.find_one({
-            "user_id": user_id,
-            "helper_id": h["helper_id"]
-        })
+        hp = profile_map.get(h["helper_id"])
         enriched.append({
             **h,
             "is_enrolled": hp.get("is_enrolled", False) if hp else False,
