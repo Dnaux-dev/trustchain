@@ -26,6 +26,7 @@ app.add_middleware(
         "http://localhost:3000",
         "https://trustchain-9p21-git-main-dnauxdevs-projects.vercel.app",
         "https://trustchain-9p21.vercel.app",
+        "https://trustchain-orcin.vercel.app",
         "https://*.vercel.app",
         "*",  # allow all during hackathon
     ],
